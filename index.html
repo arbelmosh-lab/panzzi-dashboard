@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PanzziFeeder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>PanzziFeeder</h1>
+    <span id="status" class="pill" style="background:var(--muted)">טוען…</span>
+    <span id="seen" class="muted"></span>
+    <span id="demo">נתוני דוגמה: עוד לא הוגדרה כתובת API ב-config.js</span>
+  </header>
+  <p id="err" class="card"></p>
+
+  <div class="grid" id="kpis"></div>
+
+  <section class="card">
+    <h2>מה קורה עכשיו</h2>
+    <ul class="alerts" id="alerts"></ul>
+  </section>
+
+  <section class="card">
+    <h2>לחיצות והנפקות לפי שעה (24 שעות אחרונות)</h2>
+    <div id="hourly"></div>
+    <div class="legend">
+      <span><i style="background:var(--c1)"></i>לחיצות</span>
+      <span><i style="background:var(--c2)"></i>הנפקות</span>
+      <span><i style="background:var(--c3)"></i>הנפקות מוצלחות</span>
+    </div>
+  </section>
+
+  <div class="two">
+    <section class="card">
+      <h2>אוכל במיכל (ליטר)</h2>
+      <div id="silo"></div>
+    </section>
+    <section class="card">
+      <h2>לחות במיכל (%)</h2>
+      <div id="hum"></div>
+      <div class="legend"><span><i style="background:var(--bad)"></i>קו 65%</span></div>
+    </section>
+  </div>
+  <div style="height:12px"></div>
+
+  <div class="two">
+    <section class="card">
+      <h2>הנפקות לפי יום</h2>
+      <div id="days"></div>
+      <div class="legend">
+        <span><i style="background:var(--c2)"></i>הנפקות</span>
+        <span><i style="background:var(--c3)"></i>מוצלחות</span>
+      </div>
+    </section>
+    <section class="card">
+      <h2>כמה גרגרים יוצאים בהנפקה</h2>
+      <div id="dist"></div>
+    </section>
+  </div>
+  <div style="height:12px"></div>
+
+  <section class="card">
+    <h2>הנפקות אחרונות</h2>
+    <div class="table-wrap"><table id="recent"></table></div>
+  </section>
+
+  <section class="card" id="insWrap" style="display:none">
+    <h2>תוספת: הניתוח היומי של Claude</h2>
+    <p class="muted" id="insMeta"></p>
+    <div id="ins"></div>
+  </section>
+
+  <footer class="muted">ESP32 ← Google Sheets ← Apps Script API ← הדף הזה (GitHub Pages). מתעדכן לבד כל 2 דקות.</footer>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
