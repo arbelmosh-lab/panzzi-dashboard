@@ -1,5 +1,6 @@
 // ---------- הגדרות (זהות לדשבורד הקודם ולסוכן היומי) ----------
 const TZ = 'Asia/Jerusalem';
+const MIN_GRAMS = 2;              // כמו בקושחה: הנפקה מוצלחת = נוספו לפחות 2 גרם
 const HUM_LIMIT = 65, HUM_HOURS = 6, NO_FOOD_HOURS = 12, OFFLINE_MIN = 60, BOOTS_MAX = 3, SILO_LOW = 20;
 // מודל המיכל: [עומק מתחת לשפה בס"מ, קוטר בס"מ]. החיישן 2.6 ס"מ מתחת לשפה.
 const PROFILE = [[0,16],[5.7,15.5],[11.2,14.6],[14.9,13.6],[17.5,12.6],[20.1,11.6],[23,10],[25.9,8.2],[30,7.4]];
@@ -14,6 +15,9 @@ const dhm = (ms) => fmt(ms, { day: '2-digit', month: '2-digit' }) + ' ' + hm(ms)
 const hourOf = (ms) => Number(fmt(ms, { hour: '2-digit', hour12: false })) % 24;
 const dayKey = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ms));
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+// שורה עם משקל (קושחה 5.2): הצלחה לפי גרמים. שורה ישנה: לפי חיישן הקול
+const isOk = (r) => (r.bowl != null ? r.g != null && r.g >= MIN_GRAMS : r.snd != null && r.snd >= 1);
+const g1 = (v) => (v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1));
 const dur = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? m + ' דק׳' : Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0') + ' שע׳'; };
 
 function diamAt(z) {
@@ -72,10 +76,12 @@ function lineChart(el, pts, t0, t1, opt) {
     s += `<text x="${L - 4}" y="${y(v) + 4}" text-anchor="end">${opt.dec ? v.toFixed(1) : Math.round(v)}</text>`;
   }
   if (opt.limit != null) s += `<line x1="${L}" x2="${W - R}" y1="${y(opt.limit)}" y2="${y(opt.limit)}" stroke="${css('--bad')}" stroke-dasharray="4 4"/>`;
-  // שובר את הקו בפערים של יותר מ-30 דקות (המאכיל לא שידר)
+  // שובר את הקו בפערים (ברירת מחדל 30 דקות: המאכיל לא שידר)
+  const gap = opt.gap || 0.5 * H;
   let d = '', prev = null;
-  pts.forEach((p) => { d += (prev && p[0] - prev[0] < 0.5 * H ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1); prev = p; });
+  pts.forEach((p) => { d += (prev && p[0] - prev[0] < gap ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1); prev = p; });
   s += `<path d="${d}" fill="none" stroke="${opt.color}" stroke-width="2"/>`;
+  if (opt.dots) pts.forEach((p) => { s += `<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="2.5" fill="${opt.color}"><title>${dhm(p[0])}: ${g1(p[1])}</title></circle>`; });
   for (let t = Math.ceil(t0 / (6 * H)) * 6 * H; t <= t1; t += 6 * H) {
     s += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${hourOf(t) === 0 ? fmt(t, { day: '2-digit', month: '2-digit' }) : hm(t)}</text>`;
   }
@@ -85,13 +91,15 @@ function lineChart(el, pts, t0, t1, opt) {
 // ---------- חישובים ----------
 function analyse(d) {
   const now = d.now;
-  const rows = d.rows.map((r) => ({ t: r[0], ms: r[1], ev: r[2], snd: r[3], shake: r[4], cd: r[5], rh: r[6], c: r[7], cm: r[8], what: r[9] }));
+  // שורת API: [זמן, device_ms, event, snd, shake, cooldown, humidity, temp_c, distance_cm, what, grams, bowl_g, eaten_g, dispensed_g]
+  const rows = d.rows.map((r) => ({ t: r[0], ms: r[1], ev: r[2], snd: r[3], shake: r[4], cd: r[5], rh: r[6], c: r[7], cm: r[8], what: r[9],
+    g: r[10] ?? null, bowl: r[11] ?? null, ate: r[12] ?? null, dg: r[13] ?? null }));
   const in24 = rows.filter((r) => r.t >= now - 24 * H);
   const disp = rows.filter((r) => r.ev === 'dispense');
   const disp24 = in24.filter((r) => r.ev === 'dispense');
-  const ok24 = disp24.filter((r) => r.snd >= 1);
+  const ok24 = disp24.filter(isOk);
   const press24 = in24.filter((r) => r.ev === 'press');
-  const okAll = disp.filter((r) => r.snd >= 1);
+  const okAll = disp.filter(isOk);
   const lastOk = okAll.length ? okAll[okAll.length - 1] : null;
 
   // אתחולים: שורת boot, או שעון הבקר שהתאפס (שורת boot לפעמים הולכת לאיבוד לפני שה-Wi-Fi עולה)
@@ -130,7 +138,16 @@ function analyse(d) {
   const recordRow = disp.reduce((best, r) => (r.snd != null && (!best || r.snd > best.snd) ? r : best), null);
   const dailyMax = Math.max(0, ...d.daily.map((x) => x.max_pellets || 0));
 
-  return { now, rows, disp, disp24, ok24, press24, lastOk, boots, boots24, gaps, lastSeen, valid, siloNow, cmNow,
+  // משקל: נקודות מהשורות השעתיות ומשורות ההנפקה, וכמה נאכל
+  const bowlPts = rows.filter((r) => r.bowl != null && (r.ev === 'bowl' || r.ev === 'dispense'));
+  const bowlNow = bowlPts.length ? bowlPts[bowlPts.length - 1] : null;
+  const weighed24 = disp24.filter((r) => r.bowl != null);
+  const grams24 = weighed24.reduce((s, r) => s + Math.max(0, r.g || 0), 0);
+  const eatenRows = rows.filter((r) => r.ev === 'bowl' && r.ate != null);
+  const eaten24 = eatenRows.filter((r) => r.t >= now - 24 * H).reduce((s, r) => s + r.ate, 0);
+  const emptyFails = rows.filter((r) => r.ev === 'alert' && r.what === 'empty_fail');
+
+  return { now, rows, disp, bowlPts, bowlNow, weighed24, grams24, eatenRows, eaten24, emptyFails, disp24, ok24, press24, lastOk, boots, boots24, gaps, lastSeen, valid, siloNow, cmNow,
     hum, humNow, humRun: run, grains24, shakes24, recordRow, dailyMax,
     errors24: in24.filter((r) => r.ev === 'error'), blocked24: press24.filter((r) => r.cd === 1) };
 }
@@ -147,6 +164,10 @@ function alertsOf(a) {
   const rate = a.disp24.length ? a.ok24.length / a.disp24.length : null;
   if (rate != null && a.disp24.length >= 5 && rate < 0.5) out.push(['notice', `רק ${Math.round(rate * 100)}% מההנפקות הצליחו ב-24 שעות (${a.ok24.length} מתוך ${a.disp24.length})`]);
   a.gaps.filter((g) => g[1] >= a.now - 24 * H).forEach((g) => out.push(['notice', `פער בשידור: ${dhm(g[0])} עד ${hm(g[1])} (${dur(g[1] - g[0])})`]));
+  a.emptyFails.filter((r) => r.t >= a.now - 24 * H).forEach((r) => {
+    const fixed = a.lastOk && a.lastOk.t > r.t;
+    out.push([fixed ? 'notice' : 'warn', `קערה ריקה והנפקה נכשלה ב-${dhm(r.t)}` + (fixed ? ' (אחר כך הייתה הנפקה מוצלחת)' : '')]);
+  });
   if (!out.some((x) => x[0] === 'bad' || x[0] === 'warn')) out.unshift(['ok', 'המאכיל מחובר, החתול אוכל, והמיכל והלחות בטווח']);
   return out;
 }
@@ -167,8 +188,12 @@ function render(d) {
   const kpis = [
     ['הנפקות ב-24 שעות', a.disp24.length, `${a.press24.length} לחיצות, ${a.blocked24.length} נחסמו בצינון`],
     ['הנפקות מוצלחות', rate == null ? '–' : rate + '%', `${a.ok24.length} מתוך ${a.disp24.length}`],
-    ['גרגרים ב-24 שעות', a.grains24, a.ok24.length ? `חציון ${median(a.ok24.map((r) => r.snd))} בהנפקה` : ''],
-    ['הנפקה מוצלחת אחרונה', a.lastOk ? hm(a.lastOk.t) : '–', a.lastOk ? `${a.lastOk.snd} גרגרים · לפני ${dur(a.now - a.lastOk.t)}` : ''],
+    a.weighed24.length
+      ? ['הונפק ב-24 שעות', g1(a.grams24) + ' ג׳', `ממוצע ${g1(a.grams24 / Math.max(1, a.ok24.length))} ג׳ בהנפקה מוצלחת`]
+      : ['גרגרים ב-24 שעות', a.grains24, a.ok24.length ? `חציון ${median(a.ok24.map((r) => r.snd))} בהנפקה` : ''],
+    ['בקערה עכשיו', a.bowlNow ? g1(Math.max(0, a.bowlNow.bowl)) + ' ג׳' : '–', a.bowlNow ? `נשקל ב-${dhm(a.bowlNow.t)}` : 'אין עדיין משקל'],
+    ['נאכל ב-24 שעות', a.eatenRows.length ? g1(a.eaten24) + ' ג׳' : '–', a.eatenRows.length ? 'לפי שקילה כל שעה' : 'מתחיל אחרי שתי שקילות'],
+    ['הנפקה מוצלחת אחרונה', a.lastOk ? hm(a.lastOk.t) : '–', a.lastOk ? `${a.lastOk.bowl != null ? g1(a.lastOk.g) + ' ג׳' : a.lastOk.snd + ' גרגרים'} · לפני ${dur(a.now - a.lastOk.t)}` : ''],
     ['אוכל במיכל', a.siloNow ? Math.round(a.siloNow.pct) + '%' : '–', a.siloNow ? `${a.siloNow.L.toFixed(2)} ליטר · ${esc(d.kibble)}` : ''],
     ['לחות במיכל', a.humNow ? a.humNow.rh + '%' : '–', a.humNow && a.humNow.c != null ? `${a.humNow.c}°C` : ''],
     ['אתחולים ב-24 שעות', a.boots24.length, a.boots24.length ? a.boots24.map(hm).join(', ') : 'אין'],
@@ -186,9 +211,18 @@ function render(d) {
     const i = Math.floor((r.t - startH) / H);
     if (i < 0 || i > 23) return;
     if (r.ev === 'press') P[i]++;
-    if (r.ev === 'dispense') { D[i]++; if (r.snd >= 1) S[i]++; }
+    if (r.ev === 'dispense') { D[i]++; if (isOk(r)) S[i]++; }
   });
   barChart($('hourly'), labels, [{ values: P, color: css('--c1') }, { values: D, color: css('--c2') }, { values: S, color: css('--c3') }]);
+
+  // משקל הקערה (3 ימים) ונאכל לפי שעה (24 שעות)
+  const tb = a.now - 72 * H;
+  const bp = a.bowlPts.filter((r) => r.t >= tb).map((r) => [r.t, Math.max(0, r.bowl)]);
+  lineChart($('bowl'), bp, tb, a.now,
+    { min: 0, max: axisMax(Math.max(10, ...bp.map((p) => p[1]))), color: css('--c3'), dec: false, gap: 2 * H, dots: true });
+  const E = labels.map(() => 0);
+  a.eatenRows.forEach((r) => { const i = Math.floor((r.t - startH) / H); if (i >= 0 && i <= 23) E[i] += Math.round(r.ate * 10) / 10; });
+  barChart($('eaten'), labels, [{ values: E, color: css('--hum') }], { h: 180 });
 
   const t0 = a.now - 72 * H;
   lineChart($('silo'), a.valid.filter((r) => r.t >= t0).map((r) => [r.t, siloFrom(r.cm).L]), t0, a.now,
@@ -200,7 +234,7 @@ function render(d) {
   const byDay = {};
   d.daily.forEach((x) => { byDay[x.date] = { n: x.dispenses || 0, s: x.successful || 0 }; });
   const live = {};
-  a.disp.forEach((r) => { const k = dayKey(r.t); live[k] = live[k] || { n: 0, s: 0 }; live[k].n++; if (r.snd >= 1) live[k].s++; });
+  a.disp.forEach((r) => { const k = dayKey(r.t); live[k] = live[k] || { n: 0, s: 0 }; live[k].n++; if (isOk(r)) live[k].s++; });
   Object.keys(live).forEach((k) => { if (!byDay[k] || k === dayKey(a.now)) byDay[k] = live[k]; });
   const keys = Object.keys(byDay).sort().slice(-10);
   barChart($('days'), keys.map((k) => k.slice(8, 10) + '/' + k.slice(5, 7)),
@@ -212,8 +246,8 @@ function render(d) {
     [{ values: bins.map((b) => a.disp.filter((r) => r.snd != null && r.snd >= b[1] && r.snd <= b[2]).length), color: css('--c3') }], { h: 180 });
 
   const recent = a.disp.slice(-12).reverse();
-  $('recent').innerHTML = '<tr><th>מתי</th><th>גרגרים</th><th>הצליח</th><th>ניעור</th></tr>' +
-    recent.map((r) => `<tr><td>${dhm(r.t)}</td><td>${r.snd ?? '–'}</td><td style="color:${css(r.snd >= 1 ? '--ok' : '--bad')}">${r.snd >= 1 ? 'כן' : 'לא'}</td><td>${r.shake === 1 ? 'כן' : ''}</td></tr>`).join('');
+  $('recent').innerHTML = '<tr><th>מתי</th><th>ירד (ג׳)</th><th>בקערה (ג׳)</th><th>גרגרים</th><th>הצליח</th><th>ניעור</th></tr>' +
+    recent.map((r) => `<tr><td>${dhm(r.t)}</td><td>${r.bowl != null ? g1(r.g) : '–'}</td><td>${r.bowl != null ? g1(r.bowl) : '–'}</td><td>${r.snd ?? '–'}</td><td style="color:${css(isOk(r) ? '--ok' : '--bad')}">${isOk(r) ? 'כן' : 'לא'}</td><td>${r.shake === 1 ? 'כן' : ''}</td></tr>`).join('');
 
   // תובנות של Claude (לא חובה)
   const ins = d.insights;
