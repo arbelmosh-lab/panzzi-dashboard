@@ -15,8 +15,8 @@ const dhm = (ms) => fmt(ms, { day: '2-digit', month: '2-digit' }) + ' ' + hm(ms)
 const hourOf = (ms) => Number(fmt(ms, { hour: '2-digit', hour12: false })) % 24;
 const dayKey = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ms));
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
-// שורה עם משקל (קושחה 5.2): הצלחה לפי גרמים. שורה ישנה: לפי חיישן הקול
-const isOk = (r) => (r.bowl != null ? r.g != null && r.g >= MIN_GRAMS : r.snd != null && r.snd >= 1);
+// קושחה 5.3: הקול מחליט. לפחות גרגר אחד נשמע = הנפקה מוצלחת. המשקל מוצג בנוסף
+const isOk = (r) => r.snd != null && r.snd >= 1;
 const g1 = (v) => (v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1));
 const dur = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? m + ' דק׳' : Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0') + ' שע׳'; };
 
@@ -166,7 +166,7 @@ function alertsOf(a) {
   a.gaps.filter((g) => g[1] >= a.now - 24 * H).forEach((g) => out.push(['notice', `פער בשידור: ${dhm(g[0])} עד ${hm(g[1])} (${dur(g[1] - g[0])})`]));
   a.emptyFails.filter((r) => r.t >= a.now - 24 * H).forEach((r) => {
     const fixed = a.lastOk && a.lastOk.t > r.t;
-    out.push([fixed ? 'notice' : 'warn', `קערה ריקה והנפקה נכשלה ב-${dhm(r.t)}` + (fixed ? ' (אחר כך הייתה הנפקה מוצלחת)' : '')]);
+    out.push([fixed ? 'notice' : 'warn', `הנפקה נכשלה גם אחרי ניעור ב-${dhm(r.t)}` + (fixed ? ' (אחר כך הייתה הנפקה מוצלחת)' : '')]);
   });
   if (!out.some((x) => x[0] === 'bad' || x[0] === 'warn')) out.unshift(['ok', 'המאכיל מחובר, החתול אוכל, והמיכל והלחות בטווח']);
   return out;
@@ -188,12 +188,11 @@ function render(d) {
   const kpis = [
     ['הנפקות ב-24 שעות', a.disp24.length, `${a.press24.length} לחיצות, ${a.blocked24.length} נחסמו בצינון`],
     ['הנפקות מוצלחות', rate == null ? '–' : rate + '%', `${a.ok24.length} מתוך ${a.disp24.length}`],
-    a.weighed24.length
-      ? ['הונפק ב-24 שעות', g1(a.grams24) + ' ג׳', `ממוצע ${g1(a.grams24 / Math.max(1, a.ok24.length))} ג׳ בהנפקה מוצלחת`]
-      : ['גרגרים ב-24 שעות', a.grains24, a.ok24.length ? `חציון ${median(a.ok24.map((r) => r.snd))} בהנפקה` : ''],
+    ['גרגרים ב-24 שעות', a.grains24, (a.ok24.length ? `חציון ${median(a.ok24.map((r) => r.snd))} בהנפקה` : '') +
+      (a.weighed24.length ? ` · ${g1(a.grams24)} ג׳ לפי המשקל` : '')],
     ['בקערה עכשיו', a.bowlNow ? g1(Math.max(0, a.bowlNow.bowl)) + ' ג׳' : '–', a.bowlNow ? `נשקל ב-${dhm(a.bowlNow.t)}` : 'אין עדיין משקל'],
     ['נאכל ב-24 שעות', a.eatenRows.length ? g1(a.eaten24) + ' ג׳' : '–', a.eatenRows.length ? 'לפי שקילה כל שעה' : 'מתחיל אחרי שתי שקילות'],
-    ['הנפקה מוצלחת אחרונה', a.lastOk ? hm(a.lastOk.t) : '–', a.lastOk ? `${a.lastOk.bowl != null ? g1(a.lastOk.g) + ' ג׳' : a.lastOk.snd + ' גרגרים'} · לפני ${dur(a.now - a.lastOk.t)}` : ''],
+    ['הנפקה מוצלחת אחרונה', a.lastOk ? hm(a.lastOk.t) : '–', a.lastOk ? `${a.lastOk.snd} גרגרים${a.lastOk.g != null ? ' · ' + g1(a.lastOk.g) + ' ג׳' : ''} · לפני ${dur(a.now - a.lastOk.t)}` : ''],
     ['אוכל במיכל', a.siloNow ? Math.round(a.siloNow.pct) + '%' : '–', a.siloNow ? `${a.siloNow.L.toFixed(2)} ליטר · ${esc(d.kibble)}` : ''],
     ['לחות במיכל', a.humNow ? a.humNow.rh + '%' : '–', a.humNow && a.humNow.c != null ? `${a.humNow.c}°C` : ''],
     ['אתחולים ב-24 שעות', a.boots24.length, a.boots24.length ? a.boots24.map(hm).join(', ') : 'אין'],
