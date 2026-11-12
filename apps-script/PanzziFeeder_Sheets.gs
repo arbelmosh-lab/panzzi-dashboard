@@ -2,7 +2,7 @@
 // להדביק ב: Google Sheets ← תוספים (Extensions) ← Apps Script
 // עודכן 11/11/2026: עמודות משקל (bowl_g, eaten_g, dispensed_g) + התראת טלגרם מיידית על אירוע alert
 
-const SECRET_KEY = '<SECRET_KEY>';   // להשאיר את המילה שכבר כתובה אצלך ב-Apps Script!
+const SECRET_KEY = '<Panzznella>';   // להשאיר את המילה שכבר כתובה אצלך ב-Apps Script!
 const SHEET_NAME = 'events';
 
 const HEADERS = ['received', 'device_ms', 'event', 'ok', 'grams', 'snd', 'peak',
